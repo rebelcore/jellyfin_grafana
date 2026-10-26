@@ -209,7 +209,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus" },
-          "expr": "count(jellyfin_user_active{instance=~\"$instance\"}) or vector(0)",
+          "expr": "count(count by (user_id) (jellyfin_user_active{instance=~\"$instance\"})) or vector(0)",
           "legendFormat": "",
           "refId": "A"
         }
@@ -361,7 +361,7 @@
         {
           "datasource": { "type": "prometheus" },
           "editorMode": "code",
-          "expr": "sum by (user_device, item_index_clean, type) (\n  label_replace(\n    label_join(\n      label_join(\n        label_join(\n          jellyfin_now_playing_state{instance=~\"$instance\"} == 1,\n          \"item_index\",\n          \" \",\n          \"series_season\",\n          \"series_episode\"\n        ),\n        \"full_name\",\n        \" - \",\n        \"series_title\",\n        \"item_index\",\n        \"title\"\n      ),\n      \"user_device\",\n      \" - \",\n      \"username\",\n      \"device\"\n    ),\n    \"item_index_clean\",\n    \"$1\",\n    \"full_name\",\n    \"^[- ]*(.*?)[- ]*$\"\n  )\n)\n",
+          "expr": "max by (user_device, item_index_clean, type) (\n  label_replace(\n    label_join(\n      label_join(\n        label_join(\n          jellyfin_now_playing_state{instance=~\"$instance\"} == 1,\n          \"item_index\",\n          \" \",\n          \"series_season\",\n          \"series_episode\"\n        ),\n        \"full_name\",\n        \" - \",\n        \"series_title\",\n        \"item_index\",\n        \"title\"\n      ),\n      \"user_device\",\n      \" - \",\n      \"username\",\n      \"device\"\n    ),\n    \"item_index_clean\",\n    \"$1\",\n    \"full_name\",\n    \"^[- ]*(.*?)[- ]*$\"\n  )\n)\n",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -531,7 +531,7 @@
         {
           "id": "organize",
           "options": {
-            "excludeByName": { "Time": true, "Value": true, "__name__": true, "instance": true, "job": true, "user_id": true },
+            "excludeByName": { "Time": true, "Value": true, "__name__": true, "instance": true, "job": true, "session_id": true, "user_id": true },
             "renameByName": { "client": "Client", "client_version": "Version", "device": "Device", "ip_address": "IP Address", "username": "Username" },
             "indexByName": { "username": 0, "device": 1, "client": 2, "client_version": 3, "ip_address": 4 }
           }
@@ -760,6 +760,17 @@
             },
             "overrides": [
               {
+                "matcher": { "id": "byName", "options": "Last Seen" },
+                "properties": [{ "id": "unit", "value": "dateTimeFromNow" }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "Total Play Time" },
+                "properties": [
+                  { "id": "unit", "value": "dtdurations" },
+                  { "id": "decimals", "value": 1 }
+                ]
+              },
+              {
                 "matcher": { "id": "byName", "options": "Total Plays" },
                 "properties": [{ "id": "custom.width", "value": 100 }]
               }
@@ -776,20 +787,38 @@
           "targets": [
             {
               "datasource": { "type": "prometheus" },
-              "expr": "jellyfin_activity_count{instance=~\"$instance\"}",
+              "editorMode": "code",
+              "expr": "max by (user_id, username) (jellyfin_activity_count{instance=~\"$instance\"})",
               "format": "table",
               "instant": true,
-              "refId": "A"
+              "refId": "plays"
+            },
+            {
+              "datasource": { "type": "prometheus" },
+              "editorMode": "code",
+              "expr": "max by (user_id, username) (jellyfin_activity_play_time_seconds{instance=~\"$instance\"})",
+              "format": "table",
+              "instant": true,
+              "refId": "play_time"
+            },
+            {
+              "datasource": { "type": "prometheus" },
+              "editorMode": "code",
+              "expr": "max by (user_id, username) (time() - jellyfin_activity_last_seen_seconds{instance=~\"$instance\"}) * 1000",
+              "format": "table",
+              "instant": true,
+              "refId": "last_seen"
             }
           ],
           "title": "Playback Activity",
           "transformations": [
+            { "id": "merge", "options": {} },
             {
               "id": "organize",
               "options": {
-                "excludeByName": { "Time": true, "__name__": true, "instance": true, "job": true, "user_id": true },
-                "renameByName": { "Value": "Total Plays", "last_seen": "Last Seen", "total_play_time": "Total Play Time", "username": "Username" },
-                "indexByName": { "username": 0, "last_seen": 1, "total_play_time": 2, "Value": 3 }
+                "excludeByName": { "Time": true, "Time 1": true, "Time 2": true, "Time 3": true, "__name__": true, "instance": true, "job": true, "user_id": true },
+                "renameByName": { "Value #last_seen": "Last Seen", "Value #play_time": "Total Play Time", "Value #plays": "Total Plays", "username": "Username" },
+                "indexByName": { "username": 0, "Value #last_seen": 1, "Value #play_time": 2, "Value #plays": 3 }
               }
             }
           ],
@@ -828,7 +857,7 @@
             {
               "datasource": { "type": "prometheus" },
               "editorMode": "code",
-              "expr": "(jellyfin_storage_used_bytes{instance=~\"$instance\",location!=\"library\"} + jellyfin_storage_free_bytes{instance=~\"$instance\",location!=\"library\"})\nor\nlabel_replace(\n  max without (name) (jellyfin_storage_used_bytes{instance=~\"$instance\",location=\"library\"})\n  + max without (name) (jellyfin_storage_free_bytes{instance=~\"$instance\",location=\"library\"}),\n  \"name\", \"Libraries\", \"\", \"\"\n)",
+              "expr": "(jellyfin_storage_used_bytes{instance=~\"$instance\",location!=\"library\"} + jellyfin_storage_free_bytes{instance=~\"$instance\",location!=\"library\"})\nor\nlabel_replace(\n  max without (name, path) (jellyfin_storage_used_bytes{instance=~\"$instance\",location=\"library\"})\n  + max without (name, path) (jellyfin_storage_free_bytes{instance=~\"$instance\",location=\"library\"}),\n  \"name\", \"Libraries\", \"\", \"\"\n)",
               "legendFormat": "{{name}} ({{location}})",
               "instant": true,
               "refId": "A"
@@ -868,7 +897,7 @@
             {
               "datasource": { "type": "prometheus" },
               "editorMode": "code",
-              "expr": "100 * jellyfin_storage_used_bytes{instance=~\"$instance\",location!=\"library\"}\n/ (jellyfin_storage_used_bytes{instance=~\"$instance\",location!=\"library\"} + jellyfin_storage_free_bytes{instance=~\"$instance\",location!=\"library\"})\nor\nlabel_replace(\n  100 * max without (name) (jellyfin_storage_used_bytes{instance=~\"$instance\",location=\"library\"})\n  / (\n    max without (name) (jellyfin_storage_used_bytes{instance=~\"$instance\",location=\"library\"})\n    + max without (name) (jellyfin_storage_free_bytes{instance=~\"$instance\",location=\"library\"})\n  ),\n  \"name\", \"Libraries\", \"\", \"\"\n)",
+              "expr": "100 * jellyfin_storage_used_bytes{instance=~\"$instance\",location!=\"library\"}\n/ (jellyfin_storage_used_bytes{instance=~\"$instance\",location!=\"library\"} + jellyfin_storage_free_bytes{instance=~\"$instance\",location!=\"library\"})\nor\nlabel_replace(\n  100 * max without (name, path) (jellyfin_storage_used_bytes{instance=~\"$instance\",location=\"library\"})\n  / (\n    max without (name, path) (jellyfin_storage_used_bytes{instance=~\"$instance\",location=\"library\"})\n    + max without (name, path) (jellyfin_storage_free_bytes{instance=~\"$instance\",location=\"library\"})\n  ),\n  \"name\", \"Libraries\", \"\", \"\"\n)",
               "legendFormat": "{{name}} ({{location}})",
               "refId": "A"
             }
@@ -934,7 +963,7 @@
             {
               "datasource": { "type": "prometheus" },
               "editorMode": "code",
-              "expr": "max by (name, location) (jellyfin_storage_used_bytes{instance=~\"$instance\",location!=\"library\"})\nor\nlabel_replace(\n  max without (name) (jellyfin_storage_used_bytes{instance=~\"$instance\",location=\"library\"}),\n  \"name\", \"Libraries\", \"\", \"\"\n)",
+              "expr": "max by (name, location) (jellyfin_storage_used_bytes{instance=~\"$instance\",location!=\"library\"})\nor\nlabel_replace(\n  max without (name, path) (jellyfin_storage_used_bytes{instance=~\"$instance\",location=\"library\"}),\n  \"name\", \"Libraries\", \"\", \"\"\n)",
               "format": "table",
               "instant": true,
               "refId": "used"
@@ -942,7 +971,7 @@
             {
               "datasource": { "type": "prometheus" },
               "editorMode": "code",
-              "expr": "max by (name, location) (jellyfin_storage_free_bytes{instance=~\"$instance\",location!=\"library\"})\nor\nlabel_replace(\n  max without (name) (jellyfin_storage_free_bytes{instance=~\"$instance\",location=\"library\"}),\n  \"name\", \"Libraries\", \"\", \"\"\n)",
+              "expr": "max by (name, location) (jellyfin_storage_free_bytes{instance=~\"$instance\",location!=\"library\"})\nor\nlabel_replace(\n  max without (name, path) (jellyfin_storage_free_bytes{instance=~\"$instance\",location=\"library\"}),\n  \"name\", \"Libraries\", \"\", \"\"\n)",
               "format": "table",
               "instant": true,
               "refId": "free"
@@ -1023,14 +1052,14 @@
             {
               "datasource": { "type": "prometheus" },
               "editorMode": "code",
-              "expr": "label_replace(\n  max without (name) (jellyfin_storage_used_bytes{instance=~\"$instance\",location=\"library\"}),\n  \"name\", \"Libraries\", \"\", \"\"\n)",
+              "expr": "label_replace(\n  max without (name, path) (jellyfin_storage_used_bytes{instance=~\"$instance\",location=\"library\"}),\n  \"name\", \"Libraries\", \"\", \"\"\n)",
               "legendFormat": "{{name}} - Used",
               "refId": "A"
             },
             {
               "datasource": { "type": "prometheus" },
               "editorMode": "code",
-              "expr": "label_replace(\n  max without (name) (jellyfin_storage_free_bytes{instance=~\"$instance\",location=\"library\"}),\n  \"name\", \"Libraries\", \"\", \"\"\n)",
+              "expr": "label_replace(\n  max without (name, path) (jellyfin_storage_free_bytes{instance=~\"$instance\",location=\"library\"}),\n  \"name\", \"Libraries\", \"\", \"\"\n)",
               "legendFormat": "{{name}} - Free",
               "refId": "B"
             }
